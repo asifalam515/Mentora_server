@@ -20,6 +20,74 @@ export const bookingService = {
     });
   },
 };
+const getDashboardData = async (userId: string, role: Role) => {
+  const now = new Date();
+
+  // ===============================
+  // Build role-based filter
+  // ===============================
+  let where: any = {};
+
+  if (role === "STUDENT") {
+    where.studentId = userId;
+  }
+
+  if (role === "TUTOR") {
+    const tutorProfile = await prisma.tutorProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!tutorProfile) throw new Error("Tutor profile not found");
+    where.tutorId = tutorProfile.id;
+  }
+
+  // ADMIN -> no filter (sees all)
+
+  // ===============================
+  // Fetch all bookings
+  // ===============================
+  const bookings = await prisma.booking.findMany({
+    where,
+    include: {
+      student: { select: { name: true, email: true } },
+      tutor: {
+        include: {
+          user: { select: { name: true, email: true } },
+        },
+      },
+      slot: true,
+    },
+    orderBy: { date: "asc" },
+  });
+
+  // ===============================
+  // Split upcoming vs past
+  // ===============================
+  const upcomingBookings = bookings.filter(
+    (b) => new Date(b.date) >= now && b.status !== "CANCELLED",
+  );
+
+  const pastBookings = bookings.filter(
+    (b) => new Date(b.date) < now || b.status === "COMPLETED",
+  );
+
+  // ===============================
+  // Stats
+  // ===============================
+  const stats = {
+    total: bookings.length,
+    upcoming: upcomingBookings.length,
+    completed: bookings.filter((b) => b.status === "COMPLETED").length,
+    cancelled: bookings.filter((b) => b.status === "CANCELLED").length,
+  };
+
+  return {
+    stats,
+    upcomingBookings,
+    pastBookings,
+  };
+};
 // Create a booking
 const createBooking = async (studentId: string, slotId: string) => {
   return await prisma.$transaction(async (tx) => {
@@ -203,7 +271,7 @@ const updateBookingStatus = async (
         throw new Error("Not authorized");
 
       // optional restrictions
-      const allowed = ["CONFIRMED", "REJECTED", "COMPLETED"];
+      const allowed = ["CONFIRMED", "CANCELLED", "COMPLETED"];
       if (!allowed.includes(status))
         throw new Error("Invalid status for tutor");
     }
@@ -286,4 +354,5 @@ export const bookingRelatedService = {
   updateBookingStatus,
   cancelBooking,
   bookingCompletion,
+  getDashboardData,
 };

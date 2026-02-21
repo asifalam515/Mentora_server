@@ -3,7 +3,11 @@ import { auth, UserRole } from "../../middleware/auth";
 import { bookingController } from "./booking.controller";
 
 export const bookingRouter = Router();
-
+bookingRouter.get(
+  "/dashboard",
+  auth(UserRole.STUDENT, UserRole.TUTOR, UserRole.ADMIN),
+  bookingController.getDashboard,
+);
 bookingRouter.get(
   "/",
   auth(UserRole.STUDENT, UserRole.ADMIN, UserRole.TUTOR),

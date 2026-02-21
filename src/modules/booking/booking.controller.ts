@@ -56,6 +56,17 @@ const getBookings = async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to fetch bookings" });
   }
 };
+const getDashboard = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+
+    const data = await bookingRelatedService.getDashboardData(userId, role);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load dashboard" });
+  }
+};
 const getTutorBookings = async (req: Request, res: Response) => {
   try {
     const tutorId = req.params.tutorId;
@@ -141,4 +152,5 @@ export const bookingController = {
   cancelBooking,
   updateBookingStatus,
   bookingCompletion,
+  getDashboard,
 };
