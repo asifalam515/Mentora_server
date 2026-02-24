@@ -7,13 +7,14 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql", // or "mysql", "postgresql", ...etc
   }),
-  baseURL: "https://api-skillbridge-server.onrender.com",
+  baseURL:
+    process.env.BETTER_AUTH_URL ||
+    "https://api-skillbridge-server.onrender.com",
   secret: process.env.BETTER_AUTH_SECRET,
 
   cookies: {
     secure: true,
     sameSite: "none",
-    domain: ".onrender.com",
   },
   socialProviders: {
     google: {
@@ -22,7 +23,7 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: ["*"],
+  trustedOrigins: ["http://localhost:3000"],
   user: {
     additionalFields: {
       role: {
