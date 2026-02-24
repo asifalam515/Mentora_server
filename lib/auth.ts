@@ -8,6 +8,11 @@ export const auth = betterAuth({
     provider: "postgresql", // or "mysql", "postgresql", ...etc
   }),
   baseURL: process.env.BETTER_AUTH_URL,
+  secret: process.env.BETTER_AUTH_SECRET,
+  cookies: {
+    secure: true,
+    sameSite: "none",
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,
@@ -32,6 +37,9 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
-    origin: "http://localhost:5000",
+    origin: [
+      "http://localhost:5000",
+      "https://api-skillbridge-server.onrender.com",
+    ],
   },
 });
