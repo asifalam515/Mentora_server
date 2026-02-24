@@ -84,14 +84,33 @@ var auth = betterAuth({
     provider: "postgresql"
     // or "mysql", "postgresql", ...etc
   }),
-  baseURL: process.env.BETTER_AUTH_URL,
+  baseURL: process.env.BETTER_AUTH_URL || "https://api-skillbridge-server.onrender.com",
+  secret: process.env.BETTER_AUTH_SECRET,
+  cors: {
+    origin: [
+      process.env.FRONTEND_URL || "http://localhost:3000"
+      // your frontend domain
+    ],
+    credentials: true
+    // allow cookies to be sent
+  },
+  cookies: {
+    sessionToken: {
+      attributes: {
+        sameSite: "none",
+        // ✅ THIS FIXES YOUR LOGIN
+        secure: true,
+        httpOnly: true
+      }
+    }
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET
     }
   },
-  trustedOrigins: ["*"],
+  trustedOrigins: ["http://localhost:3000"],
   user: {
     additionalFields: {
       role: {
@@ -108,7 +127,30 @@ var auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
-    origin: "http://localhost:5000"
+    origin: ["http://localhost:3000"]
+  },
+  advanced: {
+    disableCSRFCheck: true,
+    disableOriginCheck: true,
+    useSecureCookies: false,
+    cookies: {
+      state: {
+        attributes: {
+          sameSite: "none",
+          secure: true,
+          httpOnly: true,
+          path: "/"
+        }
+      },
+      sessionToken: {
+        attributes: {
+          sameSite: "none",
+          secure: true,
+          httpOnly: true,
+          path: "/"
+        }
+      }
+    }
   }
 });
 
@@ -896,17 +938,16 @@ var slotController = {
 
 // src/modules/availabilitySlot/slot.router.ts
 var slotRouter = Router2();
-slotRouter.post("/", auth2("TUTOR" /* TUTOR */), slotController.createTimeSlot);
-slotRouter.get(
-  "/tutor/:tutorId",
-  auth2("TUTOR" /* TUTOR */, "STUDENT" /* STUDENT */, "ADMIN" /* ADMIN */),
-  slotController.getAvailabilitySlots
-);
 slotRouter.get(
   "/",
   auth2("TUTOR" /* TUTOR */, "STUDENT" /* STUDENT */, "ADMIN" /* ADMIN */),
   slotController.getAvailabilitySlotsByTutorId
 );
+slotRouter.get(
+  "/tutor/:tutorId",
+  slotController.getAvailabilitySlots
+);
+slotRouter.post("/", auth2("TUTOR" /* TUTOR */), slotController.createTimeSlot);
 slotRouter.delete(
   "/:slotId",
   auth2("TUTOR" /* TUTOR */, "ADMIN" /* ADMIN */),
@@ -2119,11 +2160,7 @@ var app = express();
 var port = process.env.PORT || 5e3;
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "https://skill-bridge-server-jqrfwzou6-asibul-alams-projects.vercel.app/",
-      "https://api-skillbridge-server.onrender.com"
-    ],
+    origin: ["http://localhost:3000"],
     credentials: true
   })
 );
