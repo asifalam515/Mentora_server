@@ -21,7 +21,7 @@ export const auth = betterAuth({
     sessionToken: {
       attributes: {
         // sameSite: "none", // ✅ THIS FIXES YOUR LOGIN
-        secure: false, //will be true in production with HTTPS
+        secure: true, //will be true in production with HTTPS
         httpOnly: true,
         path: "/",
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
@@ -35,7 +35,10 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: ["http://localhost:3000"],
+  trustedOrigins: [
+    "https://skillbridge-client-ax3eqs709-asibul-alams-projects.vercel.app",
+    "http://localhost:3000",
+  ],
   user: {
     additionalFields: {
       role: {
