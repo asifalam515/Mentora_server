@@ -20,8 +20,8 @@ export const auth = betterAuth({
   cookies: {
     sessionToken: {
       attributes: {
-        sameSite: "none", // ✅ THIS FIXES YOUR LOGIN
-        secure: false,
+        // sameSite: "none", // ✅ THIS FIXES YOUR LOGIN
+        secure: false, //will be true in production with HTTPS
         httpOnly: true,
         path: "/",
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
@@ -54,27 +54,28 @@ export const auth = betterAuth({
     enabled: true,
     origin: ["http://localhost:3000"],
   },
-  advanced: {
-    disableCSRFCheck: true,
-    disableOriginCheck: true,
-    useSecureCookies: false,
-    cookies: {
-      state: {
-        attributes: {
-          sameSite: "none",
-          secure: true,
-          httpOnly: true,
-          path: "/",
-        },
-      },
-      sessionToken: {
-        attributes: {
-          sameSite: "none",
-          secure: true,
-          httpOnly: true,
-          path: "/",
-        },
-      },
-    },
-  },
+  //
+  // advanced: {
+  //   disableCSRFCheck: true,
+  //   disableOriginCheck: true,
+  //   useSecureCookies: false,
+  //   cookies: {
+  //     state: {
+  //       attributes: {
+  //         sameSite: "none",
+  //         secure: false,
+  //         httpOnly: true,
+  //         path: "/",
+  //       },
+  //     },
+  //     sessionToken: {
+  //       attributes: {
+  //         sameSite: "none",
+  //         secure: false,
+  //         httpOnly: true,
+  //         path: "/",
+  //       },
+  //     },
+  //   },
+  // },
 });

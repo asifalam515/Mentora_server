@@ -97,10 +97,13 @@ var auth = betterAuth({
   cookies: {
     sessionToken: {
       attributes: {
-        sameSite: "none",
-        // ✅ THIS FIXES YOUR LOGIN
-        secure: true,
-        httpOnly: true
+        // sameSite: "none", // ✅ THIS FIXES YOUR LOGIN
+        secure: false,
+        //will be true in production with HTTPS
+        httpOnly: true,
+        path: "/",
+        maxAge: 1e3 * 60 * 60 * 24 * 7
+        // 7 days
       }
     }
   },
@@ -128,30 +131,31 @@ var auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     origin: ["http://localhost:3000"]
-  },
-  advanced: {
-    disableCSRFCheck: true,
-    disableOriginCheck: true,
-    useSecureCookies: false,
-    cookies: {
-      state: {
-        attributes: {
-          sameSite: "none",
-          secure: true,
-          httpOnly: true,
-          path: "/"
-        }
-      },
-      sessionToken: {
-        attributes: {
-          sameSite: "none",
-          secure: true,
-          httpOnly: true,
-          path: "/"
-        }
-      }
-    }
   }
+  //
+  // advanced: {
+  //   disableCSRFCheck: true,
+  //   disableOriginCheck: true,
+  //   useSecureCookies: false,
+  //   cookies: {
+  //     state: {
+  //       attributes: {
+  //         sameSite: "none",
+  //         secure: false,
+  //         httpOnly: true,
+  //         path: "/",
+  //       },
+  //     },
+  //     sessionToken: {
+  //       attributes: {
+  //         sameSite: "none",
+  //         secure: false,
+  //         httpOnly: true,
+  //         path: "/",
+  //       },
+  //     },
+  //   },
+  // },
 });
 
 // src/modules/admin/admin.router.ts
@@ -1796,10 +1800,10 @@ var createTutorProfile = async (data, userId) => {
 var getAllTutorProfiles = async (filters) => {
   const {
     search,
-    categoryIds,
-    minRating = 0,
+    categoryIds = [],
+    minRating,
     maxPrice,
-    minPrice = 0,
+    minPrice,
     isFeatured,
     isVerified,
     page = 1,
@@ -1817,7 +1821,7 @@ var getAllTutorProfiles = async (filters) => {
       ]
     });
   }
-  if (categoryIds && categoryIds.length > 0) {
+  if (categoryIds.length > 0) {
     conditions.push({
       categories: {
         some: {
@@ -1826,21 +1830,17 @@ var getAllTutorProfiles = async (filters) => {
       }
     });
   }
-  if (minRating > 0) {
+  if (minRating !== void 0) {
     conditions.push({
       rating: { gte: minRating }
     });
   }
-  const priceConditions = [];
-  if (minPrice > 0) {
-    priceConditions.push({ pricePerHr: { gte: minPrice } });
-  }
-  if (maxPrice) {
-    priceConditions.push({ pricePerHr: { lte: maxPrice } });
-  }
-  if (priceConditions.length > 0) {
+  if (minPrice !== void 0 || maxPrice !== void 0) {
     conditions.push({
-      AND: priceConditions
+      pricePerHr: {
+        gte: minPrice ?? 0,
+        lte: maxPrice ?? Number.MAX_SAFE_INTEGER
+      }
     });
   }
   if (isVerified !== void 0) {
@@ -1849,17 +1849,10 @@ var getAllTutorProfiles = async (filters) => {
   if (isFeatured !== void 0) {
     conditions.push({ isFeatured });
   }
-  const where = conditions.length > 0 ? { AND: conditions } : {};
-  if (conditions.length === 0) {
-    delete where.AND;
-  }
+  const where = { AND: conditions };
   const total = await prisma.tutorProfile.count({ where });
   const orderBy = {};
-  if (sortBy === "pricePerHr" || sortBy === "rating" || sortBy === "experience" || sortBy === "createdAt") {
-    orderBy[sortBy] = sortOrder;
-  } else {
-    orderBy.rating = "desc";
-  }
+  orderBy[sortBy] = sortOrder;
   const tutorsProfile = await prisma.tutorProfile.findMany({
     where,
     include: {
@@ -1878,7 +1871,6 @@ var getAllTutorProfiles = async (filters) => {
       },
       reviews: {
         take: 3,
-        // Get 3 most recent reviews
         orderBy: { createdAt: "desc" },
         include: {
           student: {
@@ -1893,17 +1885,13 @@ var getAllTutorProfiles = async (filters) => {
         where: {
           isBooked: false,
           startTime: { gt: /* @__PURE__ */ new Date() }
-          // Only future available slots
         },
         take: 5
-        // Show first 5 available slots
       },
       _count: {
         select: {
           reviews: true,
-          bookings: {
-            where: { status: "COMPLETED" }
-          }
+          bookings: { where: { status: "COMPLETED" } }
         }
       }
     },
@@ -1922,12 +1910,10 @@ var getAllTutorProfiles = async (filters) => {
     experience: tutor.experience,
     isVerified: tutor.isVerified,
     createdAt: tutor.createdAt,
-    // Categories
     categories: tutor.categories.map((c) => ({
       id: c.category.id,
       name: c.category.name
     })),
-    // Recent reviews
     recentReviews: tutor.reviews.map((review) => ({
       id: review.id,
       rating: review.rating,
@@ -1936,10 +1922,8 @@ var getAllTutorProfiles = async (filters) => {
       studentName: review.student.name,
       studentImage: review.student.image
     })),
-    // Statistics
     totalReviews: tutor._count.reviews,
     completedSessions: tutor._count.bookings,
-    // Availability
     availableSlots: tutor.availability.length,
     nextAvailableSlot: tutor.availability.length > 0 ? tutor.availability[0]?.startTime : null
   }));
@@ -1952,25 +1936,6 @@ var getAllTutorProfiles = async (filters) => {
       totalPages: Math.ceil(total / limit),
       hasNextPage: page * limit < total,
       hasPrevPage: page > 1
-    },
-    filters: {
-      applied: {
-        search,
-        categories: categoryIds,
-        minRating,
-        minPrice,
-        maxPrice,
-        isVerified
-      },
-      available: {
-        // You could add available filter ranges here
-        minRating: 0,
-        maxRating: 5,
-        minPrice: 0,
-        maxPrice: await prisma.tutorProfile.aggregate({
-          _max: { pricePerHr: true }
-        }).then((result) => result._max.pricePerHr || 100)
-      }
     }
   };
 };
@@ -2039,7 +2004,13 @@ var createTutorProfile2 = async (req, res) => {
 var getAllTutorProfiles2 = async (req, res) => {
   try {
     const search = req.query.search;
-    const category = req.query.category;
+    const categoryParam = req.query.categoryIds;
+    let categoryIds = [];
+    if (Array.isArray(categoryParam)) {
+      categoryIds = categoryParam;
+    } else if (typeof categoryParam === "string") {
+      categoryIds = [categoryParam];
+    }
     const minRating = req.query.minRating ? parseFloat(req.query.minRating) : void 0;
     const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice) : void 0;
     const minPrice = req.query.minPrice ? parseFloat(req.query.minPrice) : void 0;
@@ -2047,10 +2018,23 @@ var getAllTutorProfiles2 = async (req, res) => {
     const isFeatured = req.query.isFeatured === "true" ? true : req.query.isFeatured === "false" ? false : void 0;
     const page = req.query.page ? parseInt(req.query.page) : 1;
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const sortBy = req.query.sortBy;
-    const sortOrder = req.query.sortOrder;
-    const categoryIds = category ? category.split(",") : [];
-    const tutorsProfile = await tutorProfileService.getAllTutorProfiles({
+    let sortBy = "rating";
+    let sortOrder = "desc";
+    const sortParam = req.query.sortBy;
+    if (sortParam === "price_low") {
+      sortBy = "pricePerHr";
+      sortOrder = "asc";
+    } else if (sortParam === "price_high") {
+      sortBy = "pricePerHr";
+      sortOrder = "desc";
+    } else if (sortParam === "experience") {
+      sortBy = "experience";
+      sortOrder = "desc";
+    } else if (sortParam === "newest") {
+      sortBy = "createdAt";
+      sortOrder = "desc";
+    }
+    const result = await tutorProfileService.getAllTutorProfiles({
       search,
       categoryIds,
       minRating,
@@ -2063,7 +2047,7 @@ var getAllTutorProfiles2 = async (req, res) => {
       sortBy,
       sortOrder
     });
-    res.status(200).json(tutorsProfile);
+    res.status(200).json(result);
   } catch (error) {
     console.error("Error fetching tutor profiles:", error);
     res.status(500).json({ error: "Internal server error" });
