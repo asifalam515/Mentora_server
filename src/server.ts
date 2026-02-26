@@ -14,12 +14,13 @@ const port = process.env.PORT || 5000;
 app.use(
   cors({
     origin: [
+      "https://skillbridge-client-self.vercel.app",
       "http://localhost:3000",
-      "https://skillbridge-client-ax3eqs709-asibul-alams-projects.vercel.app",
     ],
     credentials: true,
   }),
 );
+
 app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
