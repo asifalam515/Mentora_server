@@ -1,43 +1,45 @@
 import { Router } from "express";
-import { auth, UserRole } from "../../middleware/auth";
+import auth, { UserRole } from "../../middleware/auth";
 import { adminController } from "./admin.controller";
 
 export const adminRouter = Router();
 adminRouter.get(
   "/dashboard",
-  auth(UserRole.ADMIN),
+
   adminController.getDashboardStats,
 );
 // User management
-adminRouter.get("/users", auth(UserRole.ADMIN), adminController.getAllUsers);
+adminRouter.get("/users", adminController.getAllUsers);
 adminRouter.get(
   "/users/:userId",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
   adminController.getUserDetails,
 );
 adminRouter.put(
   "/users/:userId/status",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
   adminController.updateUserStatus,
 );
 adminRouter.delete(
   "/users/:userId",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
   adminController.deleteUser,
 );
 adminRouter.put(
   "/tutors/:tutorId/verify",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
+
   adminController.verifyTutor,
 );
 // Booking management
 adminRouter.get(
   "/bookings",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
   adminController.getAllBookings,
 );
 adminRouter.put(
   "/bookings/:bookingId/status",
-  auth(UserRole.ADMIN),
+  auth(UserRole.admin),
+
   adminController.updateBookingStatus,
 );

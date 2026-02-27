@@ -2150,10 +2150,7 @@ var app = express();
 var port = process.env.PORT || 5e3;
 app.use(
   cors({
-    origin: [
-      "https://skillbridge-client-self.vercel.app",
-      "http://localhost:3000"
-    ],
+    origin: ["https://skill-bridge-4216.vercel.app", "http://localhost:3000"],
     credentials: true
   })
 );

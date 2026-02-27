@@ -1,57 +1,62 @@
-// import { NextFunction, Request, Response } from "express";
-import { auth as betterAuth } from "../../lib/auth";
-
 import { NextFunction, Request, Response } from "express";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { prisma } from "../../lib/prisma";
+import { secret } from "../modules/Auth/auth.service";
+
 export enum UserRole {
-  ADMIN = "ADMIN",
-  TUTOR = "TUTOR",
-  STUDENT = "STUDENT",
+  admin = "ADMIN",
+  student = "STUDENT",
+  tutor = "TUTOR",
 }
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role: "STUDENT" | "TUTOR" | "ADMIN";
-        status: "ACTIVE" | "BANNED";
-      };
+      user?: any;
     }
   }
 }
 
-export const auth = (...roles: UserRole[]) => {
+const auth = (...roles: UserRole[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      //get user session
-      const session = await betterAuth.api.getSession({
-        headers: req.headers as any,
+      // Is token exists .
+      // verify token .
+      // Is decoded user exists .
+      // Is users status Active  .
+      // check Role
+
+      const token = req.headers.authorization;
+
+      if (!token) {
+        throw new Error("Token not found!!");
+      }
+
+      const decoded = jwt.verify(token, secret) as JwtPayload;
+
+      const userData = await prisma.user.findUnique({
+        where: {
+          email: decoded.email,
+        },
       });
-      if (!session) {
-        return res.status(401).json({
-          success: false,
-          message: "Unauthorized",
-        });
+      if (!userData) {
+        throw new Error("Unauthorized!");
       }
-      req.user = {
-        id: session.user.id,
-        email: session.user.email,
-        role: session.user.role as UserRole,
-        status: session.user.status as "ACTIVE" | "BANNED",
-      };
-      if (roles.length && !roles.includes(req.user.role as UserRole)) {
-        return res.status(403).json({
-          success: false,
-          message: "Forbidden! You do not have access to this resource.",
-        });
+
+      if (userData.status !== "ACTIVE") {
+        throw new Error("Unauthorized!!");
       }
+
+      if (roles.length && !roles.includes(decoded.role)) {
+        throw new Error("Unauthorized!!!");
+      }
+
+      req.user = decoded;
+
       next();
-    } catch (error) {
-      console.error("Authentication error:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error",
-      });
+    } catch (error: any) {
+      next(error);
     }
   };
 };
+
+export default auth;

@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { auth, UserRole } from "../../middleware/auth";
+import auth, { UserRole } from "../../middleware/auth";
 import { tutorProfileController } from "./tutorProfile.controller";
 
 export const tutorProfileRouter = Router();
 tutorProfileRouter.post(
   "/",
-  auth(UserRole.TUTOR),
+  auth(UserRole.tutor),
   tutorProfileController.createTutorProfile,
 );
 tutorProfileRouter.get("/", tutorProfileController.getAllTutorProfiles);
@@ -20,11 +20,11 @@ tutorProfileRouter.get(
 
 tutorProfileRouter.put(
   "/:id",
-  auth(UserRole.TUTOR),
+  auth(UserRole.tutor),
   tutorProfileController.updateTutorProfileById,
 );
 tutorProfileRouter.delete(
   "/:id",
-  auth(UserRole.TUTOR, UserRole.ADMIN),
+  auth(UserRole.tutor, UserRole.admin),
   tutorProfileController.deleteTutorProfileById,
 );
