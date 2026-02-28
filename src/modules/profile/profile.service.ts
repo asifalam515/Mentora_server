@@ -1,8 +1,5 @@
-import { Router } from "express";
 import { prisma } from "../../../lib/prisma";
 import { UserRole } from "./../../middleware/auth";
-
-export const profileRouter = Router();
 
 // ----------------------------------------------------------------------
 // Types
@@ -192,10 +189,6 @@ export const profileService = {
       return results;
     });
   },
-
-  // ------------------------------------------------------------------
-  // Private methods
-  // ------------------------------------------------------------------
 
   async getStudentProfile(userId: string): Promise<StudentProfileData> {
     const user = await prisma.user.findUnique({

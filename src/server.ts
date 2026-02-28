@@ -6,7 +6,7 @@ import { AuthRouter } from "./modules/Auth/auth.router";
 import { slotRouter } from "./modules/availabilitySlot/slot.router";
 import { bookingRouter } from "./modules/booking/booking.router";
 import { categoryRouter } from "./modules/category/category.route";
-import { profileRouter } from "./modules/profile/profile.service";
+import { profileRouter } from "./modules/profile/profile.router";
 import { reviewRouter } from "./modules/review/review.router";
 import { categoriesRoute } from "./modules/tutorCategories/categories.route";
 import { tutorProfileRouter } from "./modules/tutorProfile/tutorProfile.router";

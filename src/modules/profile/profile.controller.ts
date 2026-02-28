@@ -1,13 +1,7 @@
-// src/controllers/profile.controller.ts
-
 import { Request, Response } from "express";
 import { prisma } from "../../../lib/prisma";
 import { profileService } from "./profile.service";
 
-/**
- * GET /profile
- * Returns the profile of the authenticated user based on their role.
- */
 export const getProfile = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;

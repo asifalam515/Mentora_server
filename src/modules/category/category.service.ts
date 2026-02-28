@@ -116,11 +116,41 @@ const getTutorsByCategory = async (
     },
   };
 };
+const deleteCategoryByAdmin = async (id: string) => {
+  try {
+    // Optional: prevent deleting if used by tutors
+    await prisma.tutorCategory.deleteMany({
+      where: { categoryId: id },
+    });
 
+    const deleted = await prisma.category.delete({
+      where: { id },
+    });
+
+    return deleted;
+  } catch (error) {
+    console.error("Error deleting category:", error);
+    throw error;
+  }
+};
+const updateCategoryByAdmin = async (id: string, name: string) => {
+  try {
+    const updated = await prisma.category.update({
+      where: { id },
+      data: { name },
+    });
+    return updated;
+  } catch (error) {
+    console.error("Error updating category:", error);
+    throw error;
+  }
+};
 export const categoryService = {
   createCategoryByAdmin,
   getAllCategories,
   addCategoriesToTutor,
   getTutorCategories,
   getTutorsByCategory,
+  deleteCategoryByAdmin,
+  updateCategoryByAdmin,
 };
