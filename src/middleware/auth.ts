@@ -19,42 +19,40 @@ declare global {
 const auth = (...roles: UserRole[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Is token exists .
-      // verify token .
-      // Is decoded user exists .
-      // Is users status Active  .
-      // check Role
+      const authHeader = req.headers.authorization;
 
-      const token = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({ message: "No token provided" });
+      }
+
+      const token = authHeader.split(" ")[1]; // Bearer TOKEN
 
       if (!token) {
-        throw new Error("Token not found!!");
+        return res.status(401).json({ message: "Invalid token format" });
       }
 
       const decoded = jwt.verify(token, secret) as JwtPayload;
 
       const userData = await prisma.user.findUnique({
-        where: {
-          email: decoded.email,
-        },
+        where: { email: decoded.email },
       });
+
       if (!userData) {
-        throw new Error("Unauthorized!");
+        return res.status(401).json({ message: "Unauthorized" });
       }
 
       if (userData.status !== "ACTIVE") {
-        throw new Error("Unauthorized!!");
+        return res.status(403).json({ message: "User inactive" });
       }
 
       if (roles.length && !roles.includes(decoded.role)) {
-        throw new Error("Unauthorized!!!");
+        return res.status(403).json({ message: "Forbidden" });
       }
 
-      req.user = decoded;
-
+      req.user = userData; // 🔥 better than decoded
       next();
-    } catch (error: any) {
-      next(error);
+    } catch (error) {
+      return res.status(401).json({ message: "Invalid or expired token" });
     }
   };
 };

@@ -23,3 +23,8 @@ slotRouter.delete(
   auth(UserRole.tutor, UserRole.admin),
   slotController.deleteAvailabilitySlot,
 );
+slotRouter.patch(
+  "/:slotId",
+  auth(UserRole.tutor, UserRole.admin),
+  slotController.updateAvailAbility,
+);

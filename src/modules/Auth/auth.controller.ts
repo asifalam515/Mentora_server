@@ -16,11 +16,11 @@ const createUser = async (req: Request, res: Response, next: NextFunction) => {
     next(error);
   }
 };
-
 const loginUser = async (req: Request, res: Response) => {
   try {
     const result = await AuthService.loginUserIntoDB(req.body);
 
+    // Set cookie for browser
     res.cookie("token", result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -28,11 +28,15 @@ const loginUser = async (req: Request, res: Response) => {
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 
+    // Return user + token for Postman / API clients
     sendResponse(res, {
       statusCode: 200,
       success: true,
       message: "User logged in successfully",
-      data: result.user,
+      data: {
+        user: result.user,
+        token: result.accessToken, // 🔥 ADD THIS
+      },
     });
   } catch (error: any) {
     sendResponse(res, {

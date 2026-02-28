@@ -51,6 +51,7 @@ model User {
   bookings     Booking[]     @relation("StudentBookings")
   reviews      Review[]
   banReason  String?
+  banned Boolean? @default(false)
   banExpires DateTime?
 
   @@unique([email])

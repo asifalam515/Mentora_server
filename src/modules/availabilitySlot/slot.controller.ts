@@ -49,10 +49,31 @@ const deleteAvailabilitySlot = async (req: Request, res: Response) => {
     });
   }
 };
+const updateAvailAbility = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id as string;
+    const slotId = req.params.slotId as string;
+    const data = req.body;
+    const slot = await slotService.updateAvailabilitySlotById(
+      slotId,
+      userId,
+      data,
+    );
+
+    res.status(200).json(slot);
+  } catch (error: any) {
+    console.error("Update SLOT ERROR:", error.message);
+
+    res.status(400).json({
+      error: error.message || "Failed to delete availability slots",
+    });
+  }
+};
 
 export const slotController = {
   createTimeSlot,
   getAvailabilitySlotsByTutorId,
   deleteAvailabilitySlot,
   getAvailabilitySlots,
+  updateAvailAbility,
 };
