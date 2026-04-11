@@ -27,6 +27,11 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum InvoiceStatus {
+  ISSUED
+  REFUNDED
+}
+
 enum UserStatus {
   ACTIVE
   BANNED
@@ -56,7 +61,10 @@ model User {
 
   tutorProfile TutorProfile?
   bookings     Booking[]     @relation("StudentBookings")
+  sentMessages ChatMessage[] @relation("MessageSender")
+  studentConversations ChatConversation[] @relation("StudentConversation")
   reviews      Review[]
+  invoices     Invoice[] @relation("StudentInvoices")
   banReason  String?
   banned Boolean? @default(false)
   banExpires DateTime?
@@ -80,7 +88,9 @@ model TutorProfile {
 
   categories   TutorCategory[]
   bookings     Booking[]
+  conversations ChatConversation[] @relation("TutorConversation")
   reviews      Review[]
+  invoices     Invoice[] @relation("TutorInvoices")
   availability AvailabilitySlot[]
 
   createdAt DateTime @default(now())
@@ -140,8 +150,60 @@ model Booking {
   slot    AvailabilitySlot @relation(fields: [slotId], references: [id])
 
   review Review?
+  invoice Invoice?
+  chatConversation ChatConversation?
 
   createdAt DateTime @default(now())
+}
+
+model ChatConversation {
+  id        String   @id @default(uuid())
+  bookingId String   @unique
+  studentId String
+  tutorId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking  Booking      @relation(fields: [bookingId], references: [id])
+  student  User         @relation("StudentConversation", fields: [studentId], references: [id])
+  tutor    TutorProfile @relation("TutorConversation", fields: [tutorId], references: [id])
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderId       String
+  text           String?
+  fileUrl        String?
+  fileName       String?
+  fileType       String?
+  fileSize       Int?
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id])
+  sender       User             @relation("MessageSender", fields: [senderId], references: [id])
+}
+
+model Invoice {
+  id                    String        @id @default(uuid())
+  invoiceNumber         String        @unique
+  status                InvoiceStatus @default(ISSUED)
+  amountCents           Int
+  commissionAmountCents Int
+  tutorAmountCents      Int
+  currency              String        @default("usd")
+  issuedAt              DateTime      @default(now())
+  pdfGeneratedAt        DateTime?
+
+  bookingId String @unique
+  studentId String
+  tutorId   String
+
+  booking Booking      @relation(fields: [bookingId], references: [id])
+  student User         @relation("StudentInvoices", fields: [studentId], references: [id])
+  tutor   TutorProfile @relation("TutorInvoices", fields: [tutorId], references: [id])
 }
 
 model Review {

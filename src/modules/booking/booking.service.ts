@@ -1,10 +1,16 @@
 import Stripe from "stripe";
 import {
   BookingStatus,
+  InvoiceStatus,
   PaymentStatus,
   Role,
 } from "../../../generated/prisma/enums";
 import { prisma } from "../../../lib/prisma";
+
+const createInvoiceNumber = (bookingId: string) => {
+  const slug = bookingId.replace(/-/g, "").slice(0, 12).toUpperCase();
+  return `INV-${new Date().getFullYear()}-${slug}`;
+};
 
 const PLATFORM_COMMISSION_PERCENT = 10;
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || "usd").toLowerCase();
@@ -405,6 +411,20 @@ const createBooking = async (
       data: { isBooked: true },
     });
 
+    await tx.invoice.create({
+      data: {
+        invoiceNumber: createInvoiceNumber(booking.id),
+        bookingId: booking.id,
+        studentId: booking.studentId,
+        tutorId: booking.tutorId,
+        amountCents: booking.totalAmountCents,
+        commissionAmountCents: booking.commissionAmountCents,
+        tutorAmountCents: booking.tutorAmountCents,
+        currency: booking.currency,
+        status: InvoiceStatus.ISSUED,
+      },
+    });
+
     return booking;
   });
 };
@@ -608,6 +628,11 @@ const updateBookingStatus = async (
       await tx.availabilitySlot.update({
         where: { id: booking.slotId },
         data: { isBooked: false },
+      });
+
+      await tx.invoice.updateMany({
+        where: { bookingId: booking.id },
+        data: { status: InvoiceStatus.REFUNDED },
       });
     }
 

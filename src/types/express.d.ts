@@ -9,6 +9,8 @@ declare global {
         role: "STUDENT" | "TUTOR" | "ADMIN";
         status: "ACTIVE" | "BANNED";
       };
+      file?: Multer.File;
+      cookies?: Record<string, string>;
     }
   }
 }
