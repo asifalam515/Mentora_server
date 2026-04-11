@@ -2,13 +2,52 @@ import { Request, Response } from "express";
 import { BookingStatus } from "../../../generated/prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { bookingRelatedService } from "./booking.service";
-const createBooking = async (req: Request, res: Response) => {
-  const { studentId, slotId } = req.body;
+
+const createBookingPaymentIntent = async (req: Request, res: Response) => {
+  const studentId = req.user?.id;
+  const { slotId } = req.body;
+
   try {
-    const booking = await bookingRelatedService.createBooking(
+    if (!studentId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!slotId) {
+      return res.status(400).json({ error: "slotId is required" });
+    }
+
+    const payload = await bookingRelatedService.createBookingPaymentIntent(
       studentId,
       slotId,
     );
+
+    res.status(200).json(payload);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+const createBooking = async (req: Request, res: Response) => {
+  const studentId = req.user?.id;
+  const { slotId, paymentIntentId } = req.body;
+
+  try {
+    if (!studentId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!slotId || !paymentIntentId) {
+      return res
+        .status(400)
+        .json({ error: "slotId and paymentIntentId are required" });
+    }
+
+    const booking = await bookingRelatedService.createBooking(
+      studentId,
+      slotId,
+      paymentIntentId,
+    );
+
     res.status(201).json(booking);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -92,7 +131,7 @@ const getTutorBookings = async (req: Request, res: Response) => {
 };
 const updateBookingStatus = async (req: Request, res: Response) => {
   try {
-    const bookingId = req.params.bookingId;
+    const bookingId = req.params.bookingId as string;
     const { status } = req.body;
 
     const userId = req.user?.id;
@@ -146,6 +185,7 @@ const bookingCompletion = async (req: Request, res: Response) => {
   }
 };
 export const bookingController = {
+  createBookingPaymentIntent,
   createBooking,
   getBookings,
   getTutorBookings,

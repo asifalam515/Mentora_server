@@ -7,6 +7,7 @@ const createTutorProfile = async (
     pricePerHr: number;
     experience: number;
     categoryIds?: string[];
+    stripeConnectedAccountId?: string;
   },
   userId: string,
 ) => {
@@ -18,6 +19,7 @@ const createTutorProfile = async (
         pricePerHr: data.pricePerHr,
         experience: data.experience,
         userId: userId,
+        stripeConnectedAccountId: data.stripeConnectedAccountId ?? null,
       },
     });
 

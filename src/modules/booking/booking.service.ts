@@ -1,38 +1,104 @@
-import { BookingStatus, Role } from "../../../generated/prisma/enums";
+import Stripe from "stripe";
+import {
+  BookingStatus,
+  PaymentStatus,
+  Role,
+} from "../../../generated/prisma/enums";
 import { prisma } from "../../../lib/prisma";
+
+const PLATFORM_COMMISSION_PERCENT = 10;
+const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || "usd").toLowerCase();
+
+let stripeClient: Stripe | null = null;
+
+const getStripeClient = () => {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+
+  if (!secretKey) {
+    throw new Error("STRIPE_SECRET_KEY is not configured");
+  }
+
+  if (!stripeClient) {
+    stripeClient = new Stripe(secretKey);
+  }
+
+  return stripeClient;
+};
+
+const toCents = (amount: number) => Math.round(amount * 100);
+
+const parseIntegerMeta = (
+  value: string | null | undefined,
+  fallback: number,
+) => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseFloatMeta = (value: string | null | undefined, fallback: number) => {
+  if (!value) return fallback;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const calculateSlotAmounts = (
+  startTime: Date,
+  endTime: Date,
+  pricePerHr: number,
+) => {
+  const durationMs = endTime.getTime() - startTime.getTime();
+  if (durationMs <= 0) {
+    throw new Error("Invalid slot duration");
+  }
+
+  const totalHours = Number((durationMs / (1000 * 60 * 60)).toFixed(2));
+  const totalAmountCents = toCents(totalHours * pricePerHr);
+
+  if (totalAmountCents <= 0) {
+    throw new Error("Payment amount must be greater than zero");
+  }
+
+  const commissionAmountCents = Math.round(
+    (totalAmountCents * PLATFORM_COMMISSION_PERCENT) / 100,
+  );
+  const tutorAmountCents = totalAmountCents - commissionAmountCents;
+
+  return {
+    totalHours,
+    totalAmountCents,
+    commissionAmountCents,
+    tutorAmountCents,
+  };
+};
 
 export const bookingService = {
   async getAvailableSlots(tutorId: string, date: Date) {
-    // Logic to get available slots for a tutor on a specific date
     return prisma.availabilitySlot.findMany({
       where: {
         tutorId,
-
         isBooked: false,
         startTime: date
           ? {
               gte: new Date(date.setHours(0, 0, 0, 0)),
               lt: new Date(date.setHours(23, 59, 59, 999)),
             }
-          : { gte: new Date() }, // Future slots only
+          : { gte: new Date() },
       },
       orderBy: { startTime: "asc" },
     });
   },
 };
+
 const getDashboardData = async (userId: string, role: Role) => {
   const now = new Date();
+  const where: Record<string, unknown> = {};
 
-  // ===============================
-  // Build role-based filter
-  // ===============================
-  let where: any = {};
-
-  if (role === "STUDENT") {
+  if (role === Role.STUDENT) {
     where.studentId = userId;
   }
 
-  if (role === "TUTOR") {
+  if (role === Role.TUTOR) {
     const tutorProfile = await prisma.tutorProfile.findUnique({
       where: { userId },
       select: { id: true },
@@ -42,11 +108,6 @@ const getDashboardData = async (userId: string, role: Role) => {
     where.tutorId = tutorProfile.id;
   }
 
-  // ADMIN -> no filter (sees all)
-
-  // ===============================
-  // Fetch all bookings
-  // ===============================
   const bookings = await prisma.booking.findMany({
     where,
     include: {
@@ -61,25 +122,21 @@ const getDashboardData = async (userId: string, role: Role) => {
     orderBy: { date: "asc" },
   });
 
-  // ===============================
-  // Split upcoming vs past
-  // ===============================
   const upcomingBookings = bookings.filter(
-    (b) => new Date(b.date) >= now && b.status !== "CANCELLED",
+    (b) => new Date(b.date) >= now && b.status !== BookingStatus.CANCELLED,
   );
 
   const pastBookings = bookings.filter(
-    (b) => new Date(b.date) < now || b.status === "COMPLETED",
+    (b) => new Date(b.date) < now || b.status === BookingStatus.COMPLETED,
   );
 
-  // ===============================
-  // Stats
-  // ===============================
   const stats = {
     total: bookings.length,
     upcoming: upcomingBookings.length,
-    completed: bookings.filter((b) => b.status === "COMPLETED").length,
-    cancelled: bookings.filter((b) => b.status === "CANCELLED").length,
+    completed: bookings.filter((b) => b.status === BookingStatus.COMPLETED)
+      .length,
+    cancelled: bookings.filter((b) => b.status === BookingStatus.CANCELLED)
+      .length,
   };
 
   return {
@@ -88,33 +145,186 @@ const getDashboardData = async (userId: string, role: Role) => {
     pastBookings,
   };
 };
-// Create a booking
-const createBooking = async (studentId: string, slotId: string) => {
-  return await prisma.$transaction(async (tx) => {
-    // 1. Check if slot exists and is available
-    const slot = await tx.availabilitySlot.findUnique({
+
+const createBookingPaymentIntent = async (
+  studentId: string,
+  slotId: string,
+) => {
+  const slot = await prisma.availabilitySlot.findFirst({
+    where: {
+      id: slotId,
+      isBooked: false,
+    },
+    include: {
+      tutor: {
+        select: {
+          id: true,
+          userId: true,
+          pricePerHr: true,
+        },
+      },
+    },
+  });
+
+  if (!slot) {
+    throw new Error("Time slot not found or already booked");
+  }
+
+  if (slot.tutor.userId === studentId) {
+    throw new Error("Cannot book your own tutoring session");
+  }
+
+  const existingBooking = await prisma.booking.findFirst({
+    where: {
+      studentId,
+      status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+      slot: {
+        startTime: { lt: slot.endTime },
+        endTime: { gt: slot.startTime },
+      },
+    },
+  });
+
+  if (existingBooking) {
+    throw new Error("You already have a booking during this time");
+  }
+
+  const student = await prisma.user.findUnique({
+    where: { id: studentId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      stripeCustomerId: true,
+    },
+  });
+
+  if (!student) {
+    throw new Error("Student not found");
+  }
+
+  const {
+    totalHours,
+    totalAmountCents,
+    commissionAmountCents,
+    tutorAmountCents,
+  } = calculateSlotAmounts(slot.startTime, slot.endTime, slot.tutor.pricePerHr);
+
+  const stripe = getStripeClient();
+  let customerId = student.stripeCustomerId;
+
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: student.email,
+      name: student.name,
+      metadata: {
+        userId: student.id,
+      },
+    });
+
+    customerId = customer.id;
+
+    await prisma.user.update({
+      where: { id: studentId },
+      data: { stripeCustomerId: customerId },
+    });
+  }
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: totalAmountCents,
+    currency: DEFAULT_CURRENCY,
+    customer: customerId,
+    automatic_payment_methods: { enabled: true },
+    metadata: {
+      slotId: slot.id,
+      studentId,
+      tutorId: slot.tutor.id,
+      totalHours: String(totalHours),
+      totalAmountCents: String(totalAmountCents),
+      commissionAmountCents: String(commissionAmountCents),
+      tutorAmountCents: String(tutorAmountCents),
+    },
+  });
+
+  return {
+    paymentIntentId: paymentIntent.id,
+    clientSecret: paymentIntent.client_secret,
+    currency: paymentIntent.currency,
+    totalHours,
+    totalAmountCents,
+    commissionAmountCents,
+    tutorAmountCents,
+  };
+};
+
+const createBooking = async (
+  studentId: string,
+  slotId: string,
+  paymentIntentId: string,
+) => {
+  const existing = await prisma.booking.findUnique({
+    where: { stripePaymentIntentId: paymentIntentId },
+    include: {
+      student: {
+        select: { id: true, name: true, email: true },
+      },
+      tutor: {
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      },
+      slot: true,
+    },
+  });
+
+  if (existing) {
+    if (existing.studentId !== studentId) {
+      throw new Error("Payment intent does not belong to this student");
+    }
+    return existing;
+  }
+
+  const stripe = getStripeClient();
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+    expand: ["latest_charge"],
+  });
+
+  if (paymentIntent.status !== "succeeded") {
+    throw new Error("Payment has not been completed");
+  }
+
+  if (paymentIntent.metadata.studentId !== studentId) {
+    throw new Error("Payment intent does not belong to this student");
+  }
+
+  if (paymentIntent.metadata.slotId !== slotId) {
+    throw new Error("Payment intent is for a different slot");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const slot = await tx.availabilitySlot.findFirst({
       where: { id: slotId, isBooked: false },
-      include: { tutor: true },
+      include: {
+        tutor: {
+          select: { userId: true, pricePerHr: true },
+        },
+      },
     });
 
     if (!slot) {
       throw new Error("Time slot not found or already booked");
     }
 
-    // 3. Check if student is trying to book themselves (student != tutor)
-    const tutorUser = await tx.user.findUnique({
-      where: { id: slot.tutor.userId },
-    });
-
-    if (tutorUser?.id === studentId) {
+    if (slot.tutor.userId === studentId) {
       throw new Error("Cannot book your own tutoring session");
     }
 
-    // 4. Check if student already has overlapping booking
-    const existingBooking = await tx.booking.findFirst({
+    const conflict = await tx.booking.findFirst({
       where: {
         studentId,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
         slot: {
           startTime: { lt: slot.endTime },
           endTime: { gt: slot.startTime },
@@ -122,18 +332,58 @@ const createBooking = async (studentId: string, slotId: string) => {
       },
     });
 
-    if (existingBooking) {
+    if (conflict) {
       throw new Error("You already have a booking during this time");
     }
 
-    // 5. Create the booking
+    const fallbackAmounts = calculateSlotAmounts(
+      slot.startTime,
+      slot.endTime,
+      slot.tutor.pricePerHr,
+    );
+
+    const totalAmountCents = parseIntegerMeta(
+      paymentIntent.metadata.totalAmountCents,
+      fallbackAmounts.totalAmountCents,
+    );
+    const commissionAmountCents = parseIntegerMeta(
+      paymentIntent.metadata.commissionAmountCents,
+      fallbackAmounts.commissionAmountCents,
+    );
+    const tutorAmountCents = parseIntegerMeta(
+      paymentIntent.metadata.tutorAmountCents,
+      fallbackAmounts.tutorAmountCents,
+    );
+    const totalHours = parseFloatMeta(
+      paymentIntent.metadata.totalHours,
+      fallbackAmounts.totalHours,
+    );
+
+    if (paymentIntent.amount_received !== totalAmountCents) {
+      throw new Error("Paid amount does not match booking amount");
+    }
+
+    const latestCharge = paymentIntent.latest_charge;
+    const stripeChargeId =
+      typeof latestCharge === "string"
+        ? latestCharge
+        : (latestCharge?.id ?? null);
+
     const booking = await tx.booking.create({
       data: {
         studentId,
         tutorId: slot.tutorId,
         slotId: slot.id,
         date: slot.startTime,
-        status: "PENDING",
+        status: BookingStatus.PENDING,
+        paymentStatus: PaymentStatus.PAID,
+        totalHours,
+        totalAmountCents,
+        commissionAmountCents,
+        tutorAmountCents,
+        currency: paymentIntent.currency,
+        stripePaymentIntentId: paymentIntent.id,
+        stripeChargeId,
       },
       include: {
         student: {
@@ -150,7 +400,6 @@ const createBooking = async (studentId: string, slotId: string) => {
       },
     });
 
-    // 6. Mark slot as booked
     await tx.availabilitySlot.update({
       where: { id: slotId },
       data: { isBooked: true },
@@ -159,6 +408,7 @@ const createBooking = async (studentId: string, slotId: string) => {
     return booking;
   });
 };
+
 const getBookings = async (
   userId: string,
   userRole: Role,
@@ -169,37 +419,40 @@ const getBookings = async (
     startDate?: Date;
     endDate?: Date;
   },
-  // optionally add other filters like startDate, endDate, tutorId, etc.
 ) => {
-  // Build where condition based on role
-  let where: any = {};
-  if (userRole === "STUDENT") {
+  const where: Record<string, unknown> = {};
+
+  if (userRole === Role.STUDENT) {
     where.studentId = userId;
-  } else if (userRole === "TUTOR") {
-    // Need to get tutor profile id from userId
+  } else if (userRole === Role.TUTOR) {
     const tutorProfile = await prisma.tutorProfile.findUnique({
       where: { userId },
       select: { id: true },
     });
+
     if (!tutorProfile) {
       throw new Error("Tutor profile not found");
     }
+
     where.tutorId = tutorProfile.id;
-  } else if (userRole === "ADMIN") {
-    // admin can see all, optionally apply filters
-    // maybe allow filtering by studentId, tutorId, etc. via additional params
+  } else if (userRole === Role.ADMIN) {
+    if (filters?.studentId) where.studentId = filters.studentId;
+    if (filters?.tutorId) where.tutorId = filters.tutorId;
+    if (filters?.startDate || filters?.endDate) {
+      where.date = {
+        gte: filters.startDate,
+        lte: filters.endDate,
+      };
+    }
   } else {
     throw new Error("Invalid user role");
   }
 
-  // Add status filter if provided
   if (status) {
     where.status = status;
   }
 
-  // Optional: add date range filters if provided as parameters
-
-  return await prisma.booking.findMany({
+  return prisma.booking.findMany({
     where,
     include: {
       student: {
@@ -218,8 +471,9 @@ const getBookings = async (
     orderBy: { date: "asc" },
   });
 };
+
 const getTutorBookings = async (tutorId: string, status?: BookingStatus) => {
-  return await prisma.booking.findMany({
+  return prisma.booking.findMany({
     where: {
       tutorId,
       ...(status && { status }),
@@ -233,69 +487,133 @@ const getTutorBookings = async (tutorId: string, status?: BookingStatus) => {
     orderBy: { date: "asc" },
   });
 };
+
 const updateBookingStatus = async (
   bookingId: string,
   userId: string,
   role: Role,
   status: BookingStatus,
 ) => {
-  return await prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({
-      where: { id: bookingId },
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+  });
+
+  if (!booking) throw new Error("Booking not found");
+
+  if (role === Role.STUDENT) {
+    if (booking.studentId !== userId) throw new Error("Not authorized");
+
+    if (status !== BookingStatus.CANCELLED) {
+      throw new Error("Students can only cancel bookings");
+    }
+  }
+
+  if (role === Role.TUTOR) {
+    const tutorProfile = await prisma.tutorProfile.findUnique({
+      where: { userId },
+      select: { id: true },
     });
 
-    if (!booking) throw new Error("Booking not found");
+    if (!tutorProfile) throw new Error("Tutor profile not found");
 
-    // =========================
-    // STUDENT LOGIC
-    // =========================
-    if (role === "STUDENT") {
-      if (booking.studentId !== userId) throw new Error("Not authorized");
+    if (booking.tutorId !== tutorProfile.id) throw new Error("Not authorized");
 
-      if (status !== "CANCELLED")
-        throw new Error("Students can only cancel bookings");
+    const allowed: BookingStatus[] = [
+      BookingStatus.CONFIRMED,
+      BookingStatus.CANCELLED,
+      BookingStatus.COMPLETED,
+    ];
+
+    if (!allowed.includes(status)) {
+      throw new Error("Invalid status for tutor");
+    }
+  }
+
+  const bookingUpdateData: {
+    status: BookingStatus;
+    paymentStatus?: PaymentStatus;
+    stripeTransferId?: string;
+    stripeRefundId?: string;
+  } = {
+    status,
+  };
+
+  const stripe = getStripeClient();
+
+  if (
+    status === BookingStatus.CONFIRMED &&
+    booking.paymentStatus === PaymentStatus.PAID
+  ) {
+    const tutorProfile = await prisma.tutorProfile.findUnique({
+      where: { id: booking.tutorId },
+      select: { stripeConnectedAccountId: true },
+    });
+
+    if (!tutorProfile?.stripeConnectedAccountId) {
+      throw new Error("Tutor Stripe connected account is not configured");
     }
 
-    // =========================
-    // TUTOR LOGIC
-    // =========================
-    if (role === "TUTOR") {
-      const tutorProfile = await tx.tutorProfile.findUnique({
-        where: { userId },
-        select: { id: true },
+    if (!booking.stripeChargeId) {
+      throw new Error("Stripe charge ID missing for this booking");
+    }
+
+    const transfer = await stripe.transfers.create({
+      amount: booking.tutorAmountCents,
+      currency: booking.currency,
+      destination: tutorProfile.stripeConnectedAccountId,
+      source_transaction: booking.stripeChargeId,
+      metadata: {
+        bookingId: booking.id,
+      },
+    });
+
+    bookingUpdateData.paymentStatus = PaymentStatus.TRANSFERRED;
+    bookingUpdateData.stripeTransferId = transfer.id;
+  }
+
+  if (
+    status === BookingStatus.CANCELLED &&
+    (booking.paymentStatus === PaymentStatus.PAID ||
+      booking.paymentStatus === PaymentStatus.TRANSFERRED)
+  ) {
+    const paymentIntentId = booking.stripePaymentIntentId;
+    if (!paymentIntentId) {
+      throw new Error("Stripe payment intent ID missing for this booking");
+    }
+
+    if (booking.stripeTransferId) {
+      await stripe.transfers.createReversal(booking.stripeTransferId, {
+        amount: booking.tutorAmountCents,
+        metadata: {
+          bookingId: booking.id,
+          reason: "booking_cancelled",
+        },
       });
-
-      if (!tutorProfile) throw new Error("Tutor profile not found");
-
-      if (booking.tutorId !== tutorProfile.id)
-        throw new Error("Not authorized");
-
-      // optional restrictions
-      const allowed = ["CONFIRMED", "CANCELLED", "COMPLETED"];
-      if (!allowed.includes(status))
-        throw new Error("Invalid status for tutor");
     }
 
-    // =========================
-    // ADMIN LOGIC
-    // =========================
-    if (role === "ADMIN") {
-      // admin can do anything
-    }
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      metadata: {
+        bookingId: booking.id,
+        reason: "booking_cancelled",
+      },
+    });
 
-    // =========================
-    // Free slot if cancelled
-    // =========================
-    if (status === "CANCELLED") {
+    bookingUpdateData.paymentStatus = PaymentStatus.REFUNDED;
+    bookingUpdateData.stripeRefundId = refund.id;
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (status === BookingStatus.CANCELLED) {
       await tx.availabilitySlot.update({
         where: { id: booking.slotId },
         data: { isBooked: false },
       });
     }
 
-    return await tx.booking.update({
+    return tx.booking.update({
       where: { id: bookingId },
-      data: { status },
+      data: bookingUpdateData,
       include: {
         student: { select: { name: true, email: true } },
         tutor: {
@@ -308,46 +626,37 @@ const updateBookingStatus = async (
     });
   });
 };
+
 const cancelBooking = async (bookingId: string, studentId: string) => {
-  return await prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({
-      where: { id: bookingId },
-    });
-
-    if (!booking) throw new Error("Booking not found");
-    if (booking.studentId !== studentId) throw new Error("Not authorized");
-
-    // Free up the slot
-    await tx.availabilitySlot.update({
-      where: { id: booking.slotId },
-      data: { isBooked: false },
-    });
-
-    return await tx.booking.update({
-      where: { id: bookingId },
-      data: { status: "CANCELLED" },
-    });
-  });
+  return updateBookingStatus(
+    bookingId,
+    studentId,
+    Role.STUDENT,
+    BookingStatus.CANCELLED,
+  );
 };
+
 const bookingCompletion = async (bookingId: string, studentId: string) => {
-  return await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
     });
 
     if (!booking) throw new Error("Booking not found");
     if (booking.studentId !== studentId) throw new Error("Not authorized");
-    if (booking.status !== "CONFIRMED")
+    if (booking.status !== BookingStatus.CONFIRMED) {
       throw new Error("Only confirmed bookings can be completed");
+    }
 
-    return await tx.booking.update({
+    return tx.booking.update({
       where: { id: bookingId },
-      data: { status: "COMPLETED" },
+      data: { status: BookingStatus.COMPLETED },
     });
   });
 };
 
 export const bookingRelatedService = {
+  createBookingPaymentIntent,
   createBooking,
   getBookings,
   getTutorBookings,

@@ -20,15 +20,14 @@ const auth = (...roles: UserRole[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authHeader = req.headers.authorization;
+      const cookieToken = req.cookies?.token;
 
-      if (!authHeader) {
-        return res.status(401).json({ message: "No token provided" });
-      }
-
-      const token = authHeader.split(" ")[1]; // Bearer TOKEN
+      const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : cookieToken;
 
       if (!token) {
-        return res.status(401).json({ message: "Invalid token format" });
+        return res.status(401).json({ message: "No token provided" });
       }
 
       const decoded = jwt.verify(token, secret) as JwtPayload;

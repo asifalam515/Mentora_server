@@ -39,4 +39,13 @@ bookingRouter.patch(
   bookingController.updateBookingStatus,
 );
 
-bookingRouter.post("/", bookingController.createBooking);
+bookingRouter.post(
+  "/payment-intent",
+  auth(UserRole.student),
+  bookingController.createBookingPaymentIntent,
+);
+bookingRouter.post(
+  "/",
+  auth(UserRole.student),
+  bookingController.createBooking,
+);

@@ -20,6 +20,13 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum PaymentStatus {
+  PENDING
+  PAID
+  TRANSFERRED
+  REFUNDED
+}
+
 enum UserStatus {
   ACTIVE
   BANNED
@@ -53,6 +60,7 @@ model User {
   banReason  String?
   banned Boolean? @default(false)
   banExpires DateTime?
+  stripeCustomerId String?
 
   @@unique([email])
   @@map("user")
@@ -68,6 +76,7 @@ model TutorProfile {
   isFeatured Boolean @default(false)
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
+  stripeConnectedAccountId String?
 
   categories   TutorCategory[]
   bookings     Booking[]
@@ -111,6 +120,16 @@ model Booking {
   id     String        @id @default(uuid())
   status BookingStatus @default(PENDING)
   date   DateTime
+  paymentStatus PaymentStatus @default(PENDING)
+  totalHours Float @default(0)
+  totalAmountCents Int @default(0)
+  commissionAmountCents Int @default(0)
+  tutorAmountCents Int @default(0)
+  currency String @default("usd")
+  stripePaymentIntentId String? @unique
+  stripeChargeId String?
+  stripeTransferId String?
+  stripeRefundId String?
 
   studentId String
   tutorId   String
