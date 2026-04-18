@@ -33,7 +33,9 @@ export const getAllTutorProfiles = async (req: Request, res: Response) => {
     let categoryIds: string[] = [];
 
     if (Array.isArray(categoryParam)) {
-      categoryIds = categoryParam;
+      categoryIds = categoryParam.filter(
+        (value): value is string => typeof value === "string",
+      );
     } else if (typeof categoryParam === "string") {
       categoryIds = [categoryParam];
     }
@@ -88,19 +90,21 @@ export const getAllTutorProfiles = async (req: Request, res: Response) => {
       sortOrder = "desc";
     }
 
-    const result = await tutorProfileService.getAllTutorProfiles({
-      search,
-      categoryIds,
-      minRating,
-      maxPrice,
-      minPrice,
-      isVerified,
-      isFeatured,
+    const filters = {
+      ...(search !== undefined ? { search } : {}),
+      ...(categoryIds.length > 0 ? { categoryIds } : {}),
+      ...(minRating !== undefined ? { minRating } : {}),
+      ...(maxPrice !== undefined ? { maxPrice } : {}),
+      ...(minPrice !== undefined ? { minPrice } : {}),
+      ...(isVerified !== undefined ? { isVerified } : {}),
+      ...(isFeatured !== undefined ? { isFeatured } : {}),
       page,
       limit,
       sortBy,
       sortOrder,
-    });
+    };
+
+    const result = await tutorProfileService.getAllTutorProfiles(filters);
 
     res.status(200).json(result);
   } catch (error) {
@@ -136,6 +140,17 @@ const getTutorProfileByTutorProfileId = async (req: Request, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+const getTopTutors = async (_req: Request, res: Response) => {
+  try {
+    const topTutors = await tutorProfileService.getTopTutors();
+    res.status(200).json(topTutors);
+  } catch (error) {
+    console.error("Error fetching top tutors:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 const updateTutorProfileById = async (req: Request, res: Response) => {
   try {
     const tutorProfileId = req.params.id as string;
@@ -168,4 +183,5 @@ export const tutorProfileController = {
   updateTutorProfileById,
   deleteTutorProfileById,
   getTutorProfileByTutorProfileId,
+  getTopTutors,
 };

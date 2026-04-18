@@ -1,6 +1,17 @@
 import { Request, Response } from "express";
 import { categoryService } from "../category/category.service";
 import { categoriesService } from "./categories.service";
+const getAllCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await categoriesService.getAllCategories();
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch categories",
+    });
+  }
+};
 const createCategory = async (req: Request, res: Response) => {
   try {
     const category = await categoriesService.createCategory(req.body);
@@ -38,4 +49,5 @@ const addTutorCategories = async (req: Request, res: Response) => {
 export const categoriesController = {
   createCategory,
   addTutorCategories,
+  getAllCategories,
 };

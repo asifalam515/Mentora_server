@@ -9,6 +9,7 @@ tutorProfileRouter.post(
   tutorProfileController.createTutorProfile,
 );
 tutorProfileRouter.get("/", tutorProfileController.getAllTutorProfiles);
+tutorProfileRouter.get("/top-tutors", tutorProfileController.getTopTutors);
 tutorProfileRouter.get(
   "/:tutorProfileId",
   tutorProfileController.getTutorProfileByTutorProfileId,

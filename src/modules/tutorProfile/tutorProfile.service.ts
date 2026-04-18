@@ -56,7 +56,7 @@ const createTutorProfile = async (
     });
   });
 };
-interface TutorFilters {
+export interface TutorFilters {
   search?: string;
   categoryIds?: string[];
   minRating?: number;
@@ -282,6 +282,60 @@ const deleteTutorProfileById = async (tutorProfileId: string) => {
     where: { id: tutorProfileId },
   });
 };
+
+const avatarFallbacks = [
+  "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrKNa_1guK9qVnTWBnX7IBvjXJeXGuD8vDNw&s",
+  "https://i.ibb.co.com/PpR00GD/Whats-App-Image-2026-02-08-at-2-01-16-PM.jpg",
+  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80",
+];
+
+const getTopTutors = async () => {
+  const tutors = await prisma.tutorProfile.findMany({
+    where: {
+      user: {
+        role: "TUTOR",
+        status: "ACTIVE",
+      },
+    },
+    include: {
+      user: {
+        select: {
+          name: true,
+          image: true,
+        },
+      },
+      categories: {
+        include: {
+          category: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          bookings: {
+            where: {
+              status: "COMPLETED",
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ rating: "desc" }, { experience: "desc" }, { createdAt: "asc" }],
+    take: 3,
+  });
+
+  return tutors.map((tutor, index) => ({
+    name: tutor.user.name,
+    subject: tutor.categories[0]?.category.name || "General",
+    rating: Number(tutor.rating.toFixed(1)),
+    students: tutor._count.bookings,
+    avatar: tutor.user.image || avatarFallbacks[index % avatarFallbacks.length],
+  }));
+};
+
 export const tutorProfileService = {
   createTutorProfile,
   getAllTutorProfiles,
@@ -289,4 +343,5 @@ export const tutorProfileService = {
   updateTutorProfileById,
   deleteTutorProfileById,
   getTutorProfileByTutorId,
+  getTopTutors,
 };
