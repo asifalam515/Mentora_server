@@ -12,6 +12,7 @@ import { categoryRouter } from "./modules/category/category.route";
 import { chatRouter } from "./modules/chat/chat.router";
 import { registerChatSocket } from "./modules/chat/chat.socket";
 import { invoiceRouter } from "./modules/invoice/invoice.router";
+import { lessonPlanRouter } from "./modules/lessonPlan/lesson-plan.router";
 import { profileRouter } from "./modules/profile/profile.router";
 import { reviewRouter } from "./modules/review/review.router";
 import { categoriesRoute } from "./modules/tutorCategories/categories.route";
@@ -62,6 +63,8 @@ app.use("/api/v1/reviews", reviewRouter);
 app.use("/api/v1/admin", adminRouter);
 // profile related router
 app.use("/api/v1/profile", profileRouter);
+// lesson plan router (AI-powered personalized curriculum)
+app.use("/api/v1/lesson-plans", lessonPlanRouter);
 app.get("/", (req, res) => {
   res.send("API is running");
 });
