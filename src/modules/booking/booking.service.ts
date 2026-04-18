@@ -558,8 +558,6 @@ const updateBookingStatus = async (
     status,
   };
 
-  const stripe = getStripeClient();
-
   if (
     status === BookingStatus.CONFIRMED &&
     booking.paymentStatus === PaymentStatus.PAID
@@ -569,26 +567,23 @@ const updateBookingStatus = async (
       select: { stripeConnectedAccountId: true },
     });
 
-    if (!tutorProfile?.stripeConnectedAccountId) {
-      throw new Error("Tutor Stripe connected account is not configured");
+    // Tutors can confirm bookings even before setting up a Stripe connected account.
+    // Transfer is attempted only when payout destination and charge info are available.
+    if (tutorProfile?.stripeConnectedAccountId && booking.stripeChargeId) {
+      const stripe = getStripeClient();
+      const transfer = await stripe.transfers.create({
+        amount: booking.tutorAmountCents,
+        currency: booking.currency,
+        destination: tutorProfile.stripeConnectedAccountId,
+        source_transaction: booking.stripeChargeId,
+        metadata: {
+          bookingId: booking.id,
+        },
+      });
+
+      bookingUpdateData.paymentStatus = PaymentStatus.TRANSFERRED;
+      bookingUpdateData.stripeTransferId = transfer.id;
     }
-
-    if (!booking.stripeChargeId) {
-      throw new Error("Stripe charge ID missing for this booking");
-    }
-
-    const transfer = await stripe.transfers.create({
-      amount: booking.tutorAmountCents,
-      currency: booking.currency,
-      destination: tutorProfile.stripeConnectedAccountId,
-      source_transaction: booking.stripeChargeId,
-      metadata: {
-        bookingId: booking.id,
-      },
-    });
-
-    bookingUpdateData.paymentStatus = PaymentStatus.TRANSFERRED;
-    bookingUpdateData.stripeTransferId = transfer.id;
   }
 
   if (
@@ -596,6 +591,7 @@ const updateBookingStatus = async (
     (booking.paymentStatus === PaymentStatus.PAID ||
       booking.paymentStatus === PaymentStatus.TRANSFERRED)
   ) {
+    const stripe = getStripeClient();
     const paymentIntentId = booking.stripePaymentIntentId;
     if (!paymentIntentId) {
       throw new Error("Stripe payment intent ID missing for this booking");
