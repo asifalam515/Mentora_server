@@ -65,6 +65,7 @@ model User {
   studentConversations ChatConversation[] @relation("StudentConversation")
   reviews      Review[]
   invoices     Invoice[] @relation("StudentInvoices")
+  lessonPlans  LessonPlan[] @relation("StudentLessonPlans")
   banReason  String?
   banned Boolean? @default(false)
   banExpires DateTime?
@@ -92,6 +93,7 @@ model TutorProfile {
   reviews      Review[]
   invoices     Invoice[] @relation("TutorInvoices")
   availability AvailabilitySlot[]
+  lessonPlans  LessonPlan[] @relation("TutorLessonPlans")
 
   createdAt DateTime @default(now())
 }
@@ -221,6 +223,29 @@ model Review {
 
   createdAt DateTime @default(now())
 }
+
+model LessonPlan {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  goal         String
+  weeks        Int
+  content      Json     // Stores week-by-week breakdown
+  status       String   @default("active") // active, completed, archived
+  
+  studentId    String?
+  tutorId      String?
+  
+  student      User?         @relation("StudentLessonPlans", fields: [studentId], references: [id])
+  tutor        TutorProfile? @relation("TutorLessonPlans", fields: [tutorId], references: [id])
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@index([studentId])
+  @@index([tutorId])
+}
+
 
 
 

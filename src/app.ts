@@ -9,6 +9,7 @@ import { bookingRouter } from "./modules/booking/booking.router";
 import { categoryRouter } from "./modules/category/category.route";
 import { chatRouter } from "./modules/chat/chat.router";
 import { invoiceRouter } from "./modules/invoice/invoice.router";
+import { lessonPlanRouter } from "./modules/lessonPlan/lesson-plan.router";
 import { notificationRouter } from "./modules/notification/notification.router";
 import { profileRouter } from "./modules/profile/profile.router";
 import { reviewRouter } from "./modules/review/review.router";
@@ -65,5 +66,7 @@ app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/profile", profileRouter);
 // smart match router (AI-powered tutor matching)
 app.use("/api/v1/smart-match", smartMatchRouter);
+// lesson plan router (AI-powered personalized curriculum)
+app.use("/api/v1/lesson-plans", lessonPlanRouter);
 
 export default app;
