@@ -14,6 +14,7 @@ import { registerChatSocket } from "./modules/chat/chat.socket";
 import { invoiceRouter } from "./modules/invoice/invoice.router";
 import { lessonPlanRouter } from "./modules/lessonPlan/lesson-plan.router";
 import { profileRouter } from "./modules/profile/profile.router";
+import { resumeBuilderRouter } from "./modules/resumeBuilder/resume-builder.router";
 import { reviewRouter } from "./modules/review/review.router";
 import { categoriesRoute } from "./modules/tutorCategories/categories.route";
 import { tutorProfileRouter } from "./modules/tutorProfile/tutorProfile.router";
@@ -65,6 +66,8 @@ app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/profile", profileRouter);
 // lesson plan router (AI-powered personalized curriculum)
 app.use("/api/v1/lesson-plans", lessonPlanRouter);
+// resume builder router (AI-powered tutor bio enhancement)
+app.use("/api/v1/resume-builder", resumeBuilderRouter);
 app.get("/", (req, res) => {
   res.send("API is running");
 });

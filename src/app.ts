@@ -12,6 +12,7 @@ import { invoiceRouter } from "./modules/invoice/invoice.router";
 import { lessonPlanRouter } from "./modules/lessonPlan/lesson-plan.router";
 import { notificationRouter } from "./modules/notification/notification.router";
 import { profileRouter } from "./modules/profile/profile.router";
+import { resumeBuilderRouter } from "./modules/resumeBuilder/resume-builder.router";
 import { reviewRouter } from "./modules/review/review.router";
 import { smartMatchRouter } from "./modules/smartMatch/smartMatch.router";
 import { categoriesRoute } from "./modules/tutorCategories/categories.route";
@@ -68,5 +69,7 @@ app.use("/api/v1/profile", profileRouter);
 app.use("/api/v1/smart-match", smartMatchRouter);
 // lesson plan router (AI-powered personalized curriculum)
 app.use("/api/v1/lesson-plans", lessonPlanRouter);
+// resume builder router (AI-powered tutor bio enhancement)
+app.use("/api/v1/resume-builder", resumeBuilderRouter);
 
 export default app;

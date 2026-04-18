@@ -1,7 +1,7 @@
 // src/server.ts
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import express2 from "express";
+import express4 from "express";
 import http from "http";
 import path3 from "path";
 import { Server } from "socket.io";
@@ -2906,6 +2906,457 @@ invoiceRouter.get(
   invoiceController.downloadInvoicePdf
 );
 
+// src/modules/lessonPlan/lesson-plan.router.ts
+import express2 from "express";
+
+// src/modules/lessonPlan/lesson-plan.service.ts
+var callGroqForLessonPlan = async (goal, weeks, studentLevel = "intermediate", tutorExpertise) => {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY environment variable not set");
+  }
+  const prompt = `You are an expert educator creating a personalized ${weeks}-week structured learning curriculum.
+
+STUDENT LEARNING GOAL: "${goal}"
+STUDENT LEVEL: ${studentLevel}
+${tutorExpertise ? `TUTOR EXPERTISE: ${tutorExpertise}` : ""}
+
+Create a detailed, week-by-week lesson plan with:
+1. For each week: Week title, 3-4 core topics, 2-3 practical exercises with difficulty levels
+2. Weekly milestones that show progress
+3. Estimated hours per week for self-study
+4. Recommended resources (books, articles, libraries)
+5. Overall assessment strategy to measure progress
+
+IMPORTANT: Respond with ONLY valid JSON in this exact format, no additional text:
+
+{
+  "weeks": [
+    {
+      "week": 1,
+      "title": "Week Title Here",
+      "topics": ["topic1", "topic2", "topic3"],
+      "exercises": [
+        {
+          "title": "Exercise Title",
+          "description": "Description of what to do",
+          "difficulty": "easy"
+        }
+      ],
+      "milestone": "What student should achieve by end of week",
+      "estimatedHours": 8
+    }
+  ],
+  "totalHours": ${weeks * 8},
+  "resources": ["resource1", "resource2"],
+  "assessmentStrategy": "How to measure progress throughout course"
+}`;
+  try {
+    const startTime = Date.now();
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert curriculum designer. Respond ONLY with valid JSON."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 3e3,
+          top_p: 0.9
+        })
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      console.error("Groq API error:", error);
+      throw new Error(`Groq API error: ${response.status}`);
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const responseTime = Date.now() - startTime;
+    let jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("Could not find JSON in AI response");
+    }
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      parsed.responseTime = responseTime;
+      return parsed;
+    } catch (parseError) {
+      let cleanedJson = jsonMatch[0].replace(/'/g, '"').replace(/\n/g, " ").replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
+      try {
+        const parsed = JSON.parse(cleanedJson);
+        parsed.responseTime = responseTime;
+        return parsed;
+      } catch (cleanError) {
+        console.error("Failed to parse JSON even after cleaning:", cleanError);
+        console.error(
+          "First 500 chars of response:",
+          content.substring(0, 500)
+        );
+        throw new Error("Invalid JSON from AI response");
+      }
+    }
+  } catch (error) {
+    console.error("Error calling Groq API:", error);
+    throw error;
+  }
+};
+var generateLessonPlan = async (request) => {
+  const {
+    studentGoal,
+    duration,
+    studentLevel = "intermediate",
+    tutorId,
+    studentId
+  } = request;
+  if (!studentGoal || studentGoal.trim().length < 10) {
+    throw new Error("Student goal must be at least 10 characters long");
+  }
+  if (duration < 1 || duration > 52) {
+    throw new Error("Duration must be between 1 and 52 weeks");
+  }
+  let tutorExpertise;
+  if (tutorId) {
+    const tutor = await prisma.tutorProfile.findUnique({
+      where: { id: tutorId },
+      include: {
+        categories: {
+          include: {
+            category: true
+          }
+        },
+        user: {
+          select: {
+            name: true
+          }
+        }
+      }
+    });
+    if (tutor) {
+      const categories = tutor.categories.map((tc) => tc.category.name);
+      tutorExpertise = `${tutor.user.name} specializes in: ${categories.join(", ")}`;
+    }
+  }
+  const lessonPlanContent = await callGroqForLessonPlan(
+    studentGoal,
+    duration,
+    studentLevel,
+    tutorExpertise
+  );
+  const savedPlan = await prisma.lessonPlan.create({
+    data: {
+      title: `${studentGoal.substring(0, 50)}...`,
+      description: `${duration}-week personalized learning plan for ${studentLevel} level`,
+      goal: studentGoal,
+      weeks: duration,
+      content: lessonPlanContent,
+      status: "active",
+      studentId: studentId || void 0,
+      tutorId: tutorId || void 0
+    },
+    include: {
+      student: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
+      tutor: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
+    }
+  });
+  return {
+    success: true,
+    data: {
+      planId: savedPlan.id,
+      goal: savedPlan.goal,
+      weeks: savedPlan.weeks,
+      content: lessonPlanContent,
+      student: savedPlan.student,
+      tutor: savedPlan.tutor?.user?.name || null,
+      createdAt: savedPlan.createdAt,
+      responseTime: lessonPlanContent.responseTime
+    }
+  };
+};
+var getLessonPlanById = async (planId) => {
+  const plan = await prisma.lessonPlan.findUnique({
+    where: { id: planId },
+    include: {
+      student: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
+      tutor: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              name: true,
+              image: true
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!plan) {
+    throw new Error("Lesson plan not found");
+  }
+  return plan;
+};
+var getStudentLessonPlans = async (studentId) => {
+  const plans = await prisma.lessonPlan.findMany({
+    where: { studentId },
+    include: {
+      tutor: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  return plans;
+};
+var updateLessonPlanStatus = async (planId, status) => {
+  const updated = await prisma.lessonPlan.update({
+    where: { id: planId },
+    data: { status }
+  });
+  return updated;
+};
+var deleteLessonPlan = async (planId) => {
+  await prisma.lessonPlan.delete({
+    where: { id: planId }
+  });
+};
+var lessonPlanService = {
+  generateLessonPlan,
+  getLessonPlanById,
+  getStudentLessonPlans,
+  updateLessonPlanStatus,
+  deleteLessonPlan,
+  callGroqForLessonPlan
+};
+
+// src/modules/lessonPlan/lesson-plan.controller.ts
+var generateLessonPlan2 = async (req, res) => {
+  try {
+    const {
+      studentGoal,
+      duration,
+      studentLevel = "intermediate",
+      tutorId,
+      studentId
+    } = req.body;
+    if (!studentGoal) {
+      res.status(400).json({
+        success: false,
+        message: "Student goal is required",
+        code: "MISSING_GOAL"
+      });
+      return;
+    }
+    if (!duration) {
+      res.status(400).json({
+        success: false,
+        message: "Duration (in weeks) is required",
+        code: "MISSING_DURATION"
+      });
+      return;
+    }
+    const result = await lessonPlanService.generateLessonPlan({
+      studentGoal,
+      duration: parseInt(duration),
+      studentLevel,
+      tutorId,
+      studentId
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    console.error("Error generating lesson plan:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to generate lesson plan",
+      error: error.message
+    });
+  }
+};
+var getLessonPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    if (!planId) {
+      res.status(400).json({
+        success: false,
+        message: "Plan ID is required",
+        code: "MISSING_PLAN_ID"
+      });
+      return;
+    }
+    const plan = await lessonPlanService.getLessonPlanById(planId);
+    res.status(200).json({
+      success: true,
+      data: plan
+    });
+  } catch (error) {
+    console.error("Error retrieving lesson plan:", error);
+    if (error.message === "Lesson plan not found") {
+      res.status(404).json({
+        success: false,
+        message: "Lesson plan not found"
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to retrieve lesson plan"
+    });
+  }
+};
+var getStudentLessonPlans2 = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    if (!studentId) {
+      res.status(400).json({
+        success: false,
+        message: "Student ID is required",
+        code: "MISSING_STUDENT_ID"
+      });
+      return;
+    }
+    const plans = await lessonPlanService.getStudentLessonPlans(studentId);
+    res.status(200).json({
+      success: true,
+      data: plans,
+      count: plans.length
+    });
+  } catch (error) {
+    console.error("Error retrieving student lesson plans:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to retrieve lesson plans"
+    });
+  }
+};
+var updateLessonPlanStatus2 = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { status } = req.body;
+    if (!planId) {
+      res.status(400).json({
+        success: false,
+        message: "Plan ID is required"
+      });
+      return;
+    }
+    if (!status || !["active", "completed", "archived"].includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: "Valid status required: active, completed, or archived"
+      });
+      return;
+    }
+    const updated = await lessonPlanService.updateLessonPlanStatus(
+      planId,
+      status
+    );
+    res.status(200).json({
+      success: true,
+      data: updated,
+      message: "Lesson plan status updated successfully"
+    });
+  } catch (error) {
+    console.error("Error updating lesson plan status:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update lesson plan status"
+    });
+  }
+};
+var deleteLessonPlan2 = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    if (!planId) {
+      res.status(400).json({
+        success: false,
+        message: "Plan ID is required"
+      });
+      return;
+    }
+    await lessonPlanService.deleteLessonPlan(planId);
+    res.status(200).json({
+      success: true,
+      message: "Lesson plan deleted successfully"
+    });
+  } catch (error) {
+    console.error("Error deleting lesson plan:", error);
+    if (error.message && error.message.includes("Record to delete does not exist")) {
+      res.status(404).json({
+        success: false,
+        message: "Lesson plan not found"
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete lesson plan"
+    });
+  }
+};
+var lessonPlanController = {
+  generateLessonPlan: generateLessonPlan2,
+  getLessonPlan,
+  getStudentLessonPlans: getStudentLessonPlans2,
+  updateLessonPlanStatus: updateLessonPlanStatus2,
+  deleteLessonPlan: deleteLessonPlan2
+};
+
+// src/modules/lessonPlan/lesson-plan.router.ts
+var lessonPlanRouter = express2.Router();
+lessonPlanRouter.post("/generate", lessonPlanController.generateLessonPlan);
+lessonPlanRouter.get("/:planId", lessonPlanController.getLessonPlan);
+lessonPlanRouter.get(
+  "/student/:studentId",
+  lessonPlanController.getStudentLessonPlans
+);
+lessonPlanRouter.patch(
+  "/:planId/status",
+  lessonPlanController.updateLessonPlanStatus
+);
+lessonPlanRouter.delete("/:planId", lessonPlanController.deleteLessonPlan);
+
 // src/modules/profile/profile.router.ts
 import { Router as Router7 } from "express";
 
@@ -3292,6 +3743,213 @@ profileRouter.patch(
   updateProfile
 );
 profileRouter.patch("/availability", auth_default("TUTOR" /* tutor */), updateAvailability);
+
+// src/modules/resumeBuilder/resume-builder.router.ts
+import express3 from "express";
+
+// src/modules/resumeBuilder/resume-builder.service.ts
+var parseJsonResponse = (content) => {
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("Could not parse AI response as JSON");
+  }
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    const cleanedJson = jsonMatch[0].replace(/\n/g, " ").replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
+    return JSON.parse(cleanedJson);
+  }
+};
+var callGroqResumeEnhancer = async (params) => {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY environment variable not set");
+  }
+  const prompt = `You are an expert profile copywriter for tutor marketplaces.
+
+Create an enhanced tutor resume section based on the following information.
+
+Tutor Name: ${params.name}
+Current Bio: ${params.currentBio}
+Categories: ${params.categories.join(", ") || "General"}
+Experience: ${params.experience} years
+Rating: ${params.rating}/5
+Completed Sessions: ${params.completedSessions}
+Recent Review Snippets: ${params.recentReviewSnippets.join(" | ") || "No recent reviews"}
+Preferred Tone: ${params.tone}
+Achievements: ${params.achievements.join(" | ") || "Not specified"}
+Teaching Style: ${params.teachingStyle || "Not specified"}
+Specialties: ${params.specialties.join(" | ") || "Not specified"}
+
+Return ONLY valid JSON in this exact format:
+{
+  "headline": "One-line impactful headline (max 90 chars)",
+  "improvedBio": "Polished marketplace-ready bio (120-220 words)",
+  "expertiseHighlights": ["highlight 1", "highlight 2", "highlight 3"],
+  "teachingStrengths": ["strength 1", "strength 2", "strength 3"],
+  "suggestedKeywords": ["keyword1", "keyword2", "keyword3", "keyword4"],
+  "profileSummary": "One short summary for cards (max 160 chars)"
+}`;
+  const response = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "You are a tutoring marketplace resume expert. Respond ONLY with valid JSON."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.45,
+        max_tokens: 1200,
+        top_p: 0.9
+      })
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    console.error("Groq API error:", error);
+    throw new Error(`Groq API error: ${response.status}`);
+  }
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || "";
+  return parseJsonResponse(content);
+};
+var enhanceTutorResume = async (payload) => {
+  const {
+    userId,
+    tone = "professional",
+    achievements = [],
+    teachingStyle,
+    specialties = [],
+    applyToProfile = false
+  } = payload;
+  const tutor = await prisma.tutorProfile.findUnique({
+    where: { userId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
+      categories: {
+        include: {
+          category: true
+        }
+      },
+      reviews: {
+        take: 5,
+        orderBy: { createdAt: "desc" },
+        select: {
+          rating: true,
+          comment: true
+        }
+      },
+      _count: {
+        select: {
+          bookings: {
+            where: {
+              status: "COMPLETED"
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!tutor) {
+    throw new Error("Tutor profile not found. Please create profile first.");
+  }
+  const enhancement = await callGroqResumeEnhancer({
+    name: tutor.user.name,
+    currentBio: tutor.bio,
+    categories: tutor.categories.map((item) => item.category.name),
+    experience: tutor.experience,
+    rating: tutor.rating,
+    completedSessions: tutor._count.bookings,
+    recentReviewSnippets: tutor.reviews.map((review) => review.comment).filter((comment) => Boolean(comment)),
+    tone,
+    achievements,
+    teachingStyle,
+    specialties
+  });
+  if (applyToProfile) {
+    await prisma.tutorProfile.update({
+      where: { id: tutor.id },
+      data: {
+        bio: enhancement.improvedBio
+      }
+    });
+  }
+  return {
+    tutorId: tutor.id,
+    tutorName: tutor.user.name,
+    originalBio: tutor.bio,
+    enhancement,
+    appliedToProfile: applyToProfile,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+};
+var resumeBuilderService = {
+  enhanceTutorResume
+};
+
+// src/modules/resumeBuilder/resume-builder.controller.ts
+var enhanceTutorResume2 = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+      return;
+    }
+    const { tone, achievements, teachingStyle, specialties, applyToProfile } = req.body;
+    const result = await resumeBuilderService.enhanceTutorResume({
+      userId,
+      tone,
+      achievements,
+      teachingStyle,
+      specialties,
+      applyToProfile
+    });
+    res.status(200).json({
+      success: true,
+      message: "Tutor resume enhanced successfully",
+      data: result
+    });
+  } catch (error) {
+    const message = error?.message || "Failed to enhance tutor resume";
+    const statusCode = message === "Tutor profile not found. Please create profile first." ? 404 : 500;
+    res.status(statusCode).json({
+      success: false,
+      message
+    });
+  }
+};
+var resumeBuilderController = {
+  enhanceTutorResume: enhanceTutorResume2
+};
+
+// src/modules/resumeBuilder/resume-builder.router.ts
+var resumeBuilderRouter = express3.Router();
+resumeBuilderRouter.post(
+  "/enhance",
+  auth_default("TUTOR" /* tutor */),
+  resumeBuilderController.enhanceTutorResume
+);
 
 // src/modules/review/review.router.ts
 import { Router as Router8 } from "express";
@@ -3983,7 +4641,7 @@ tutorProfileRouter.delete(
 );
 
 // src/server.ts
-var app = express2();
+var app = express4();
 var port = process.env.PORT || 5e3;
 var allowedOrigins = [
   "https://skill-bridge-4216.vercel.app",
@@ -3996,9 +4654,9 @@ app.use(
     credentials: true
   })
 );
-app.use(express2.json());
+app.use(express4.json());
 app.use(cookieParser());
-app.use("/uploads", express2.static(path3.join(process.cwd(), "uploads")));
+app.use("/uploads", express4.static(path3.join(process.cwd(), "uploads")));
 app.get("/", (req, res) => {
   res.send("skillBridge project started!");
 });
@@ -4013,6 +4671,8 @@ app.use("/api/v1/invoices", invoiceRouter);
 app.use("/api/v1/reviews", reviewRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/profile", profileRouter);
+app.use("/api/v1/lesson-plans", lessonPlanRouter);
+app.use("/api/v1/resume-builder", resumeBuilderRouter);
 app.get("/", (req, res) => {
   res.send("API is running");
 });
